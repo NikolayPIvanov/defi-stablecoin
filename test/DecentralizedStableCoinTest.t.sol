@@ -54,7 +54,7 @@ contract DecentralizedStableCoinTest is Test {
         dsc.mint(receiver, 0);
     }
 
-    function test_mint_mustMintAmount() public {
+    function test_mint_mustMintAmountToReceiver() public {
         vm.prank(dsc.owner());
         bool result = dsc.mint(receiver, AMOUNT);
         uint256 balance = dsc.balanceOf(receiver);
@@ -69,4 +69,39 @@ contract DecentralizedStableCoinTest is Test {
 
         dsc.burn(1e18);
     }
+
+    function test_burn_cannotBurnLessThanOrEqualToZero() public {
+        vm.prank(dsc.owner());
+        vm.expectRevert();
+        dsc.burn(0);
+    }
+
+    function test_burn_cannotBurnMoreThanBalance() public {
+        vm.prank(dsc.owner());
+        dsc.mint(receiver, AMOUNT);
+
+        vm.prank(dsc.owner());
+        vm.expectRevert();
+        dsc.burn(101);
+    }
+
+    function test_burn_removeBurntTokensFromBalance() public {
+        vm.prank(dsc.owner());
+        dsc.mint(receiver, AMOUNT);
+
+        vm.prank(dsc.owner());
+        vm.expectRevert();
+        dsc.burn(101);
+    }
+
+    // function test_burn_mustBurnAmountFromBalance() public {
+    //     // Mint some tokens to our receiver so it can burn
+    //     vm.prank(dsc.owner());
+    //     dsc.mint(receiver, AMOUNT * 10);
+
+    //     vm.prank(user);
+    //     vm.expectRevert();
+
+    //     dsc.burn(1e18);
+    // }
 }
