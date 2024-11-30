@@ -2,16 +2,16 @@
 pragma solidity ^0.8.28;
 
 import {Test, console} from "forge-std/Test.sol";
-import {DeployDSC} from "../script/DeployDSC.s.sol";
-import {DecentralizedStableCoin} from "../src/DecentralizedStableCoin.sol";
+import {DeployDSC} from "../../script/DeployDSC.s.sol";
+import {DecentralizedStableCoin} from "../../src/DecentralizedStableCoin.sol";
 
 contract DecentralizedStableCoinTest is Test {
     DeployDSC public deployer;
     DecentralizedStableCoin public dsc;
 
-    string constant NAME = "Decentralized Stable Coin";
-    string constant SYMBOL = "DSC";
-    uint256 constant AMOUNT = 1e18;
+    string private constant NAME = "Decentralized Stable Coin";
+    string private constant SYMBOL = "DSC";
+    uint256 private constant AMOUNT = 1e18;
 
     uint256 public DEFAULT_ANVIL_PRIVATE_KEY = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
     address public user = makeAddr("user");
@@ -22,39 +22,39 @@ contract DecentralizedStableCoinTest is Test {
     }
 
     function setUp() public {
-        dsc = deployer.run();
+        (dsc,,) = deployer.run();
     }
 
-    function test_constructor_nameIsDefined() public view {
+    function testConstructorNameIsDefined() public view {
         assert(keccak256(abi.encodePacked(dsc.name())) == keccak256(abi.encodePacked(NAME)));
     }
 
-    function test_constructor_symbolIsDefined() public view {
+    function testConstructorSymbolIsDefined() public view {
         assert(keccak256(abi.encodePacked(dsc.symbol())) == keccak256(abi.encodePacked(SYMBOL)));
     }
 
-    function test_mint_onlyOwnerCanCall() public {
+    function testMintOnlyOwnerCanCall() public {
         vm.prank(user);
         vm.expectRevert();
 
         dsc.mint(receiver, 1e18);
     }
 
-    function test_mint_mustNotMintToZeroAddress() public {
+    function testMintMustNotMintToZeroAddress() public {
         vm.prank(dsc.owner());
         vm.expectRevert();
 
         dsc.mint(address(0), 1e18);
     }
 
-    function test_mint_mustMintMoreThanZero() public {
+    function testMintMustMintMoreThanZero() public {
         vm.prank(dsc.owner());
         vm.expectRevert();
 
         dsc.mint(receiver, 0);
     }
 
-    function test_mint_mustMintAmountToReceiver() public {
+    function testMintMustMintAmountToReceiver() public {
         vm.prank(dsc.owner());
         bool result = dsc.mint(receiver, AMOUNT);
         uint256 balance = dsc.balanceOf(receiver);
@@ -63,20 +63,20 @@ contract DecentralizedStableCoinTest is Test {
         assertEq(balance, AMOUNT);
     }
 
-    function test_burn_onlyOwnerCanCall() public {
+    function testBurnOnlyOwnerCanCall() public {
         vm.prank(user);
         vm.expectRevert();
 
         dsc.burn(1e18);
     }
 
-    function test_burn_cannotBurnLessThanOrEqualToZero() public {
+    function testBurnCannotBurnLessThanOrEqualToZero() public {
         vm.prank(dsc.owner());
         vm.expectRevert();
         dsc.burn(0);
     }
 
-    function test_burn_cannotBurnMoreThanBalance() public {
+    function testBurnCannotBurnMoreThanBalance() public {
         vm.prank(dsc.owner());
         dsc.mint(receiver, AMOUNT);
 
@@ -85,7 +85,7 @@ contract DecentralizedStableCoinTest is Test {
         dsc.burn(101);
     }
 
-    function test_burn_removeBurntTokensFromBalance() public {
+    function testBurnRemoveBurntTokensFromBalance() public {
         vm.prank(dsc.owner());
         dsc.mint(receiver, AMOUNT);
 
@@ -94,7 +94,7 @@ contract DecentralizedStableCoinTest is Test {
         dsc.burn(101);
     }
 
-    function test_burn_mustBurnAmountFromBalance() public {
+    function testBurnMustBurnAmountFromBalance() public {
         // Mint some tokens to our receiver so it can burn
         address owner = dsc.owner();
         vm.startPrank(owner);

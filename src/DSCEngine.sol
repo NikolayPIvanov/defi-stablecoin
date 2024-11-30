@@ -35,6 +35,7 @@ contract DSCEngine is IDSCEngine, ReentrancyGuard {
     error DSCEngine__NotAllowedToken();
     error DSCEngine__TokenTransferFailed();
     error DSCEngine__BreaksHealthFactor(uint256 healthFactor);
+    error DSCEngine__MintFailed();
 
     ///////////////////
     // State Variables
@@ -63,6 +64,7 @@ contract DSCEngine is IDSCEngine, ReentrancyGuard {
     ///////////////////
     // Modifiers
     ///////////////////
+
     modifier nonZeroAmount(uint256 _amount) {
         if (_amount == 0) revert DSCEngine__NeedsMoreThanZeroAmount();
         _;
@@ -76,6 +78,7 @@ contract DSCEngine is IDSCEngine, ReentrancyGuard {
     ///////////////////
     // Functions
     ///////////////////
+
     constructor(address[] memory _tokenAddresses, address[] memory _priceFeedAddresses, address dscAddress) {
         if (_tokenAddresses.length != _priceFeedAddresses.length) {
             revert DSCEngine__TokenAddressesAndPriceFeedsLengthDoNotMatch();
@@ -126,12 +129,27 @@ contract DSCEngine is IDSCEngine, ReentrancyGuard {
     function mintDsc(uint256 amount) external override nonZeroAmount(amount) nonReentrant {
         s_dscMinted[msg.sender] += amount;
         // if they minted too much
-        _revertIfHealthFactorIsBroken(msg.sender, amount);
+        _revertIfHealthFactorIsBroken(msg.sender);
+
+        bool minted = i_dsc.mint(msg.sender, amount);
+
+        if (minted != true) {
+            revert DSCEngine__MintFailed();
+        }
     }
 
     ///////////////////
     // Internal Functions
     ///////////////////
+    function _depositCollateral(address tokenCollateralAddress, uint256 amountCollateral) private {
+        s_collateralDeposited[msg.sender][tokenCollateralAddress] += amountCollateral;
+
+        emit CollateralDeposited(msg.sender, tokenCollateralAddress, amountCollateral);
+
+        bool success = IERC20(tokenCollateralAddress).transferFrom(msg.sender, address(this), amountCollateral);
+        if (!success) revert DSCEngine__TokenTransferFailed();
+    }
+
     function _revertIfHealthFactorIsBroken(address user) private view {
         uint256 healthFactor = _healthFactor(user);
 
@@ -159,15 +177,6 @@ contract DSCEngine is IDSCEngine, ReentrancyGuard {
     {
         totalDscMinted = s_dscMinted[user];
         collateralValueInUsd = getAccountCollateralValueInUsd(user);
-    }
-
-    function _depositCollateral(address tokenCollateralAddress, uint256 amountCollateral) private {
-        s_collateralDeposited[msg.sender][tokenCollateralAddress] += amountCollateral;
-
-        emit CollateralDeposited(msg.sender, tokenCollateralAddress, amountCollateral);
-
-        bool success = IERC20(tokenCollateralAddress).transferFrom(msg.sender, address(this), amountCollateral);
-        if (!success) revert DSCEngine__TokenTransferFailed();
     }
 
     ///////////////////
