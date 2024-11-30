@@ -60,6 +60,7 @@ contract DSCEngine is IDSCEngine, ReentrancyGuard {
     ///////////////////
 
     event CollateralDeposited(address indexed user, address indexed collateralToken, uint256 amount);
+    event CollateralRedeemed(address indexed user, address indexed collateralToken, uint256 amount);
 
     ///////////////////
     // Modifiers
@@ -110,23 +111,91 @@ contract DSCEngine is IDSCEngine, ReentrancyGuard {
         _depositCollateral(_tokenCollateralAddress, _amountCollateral);
     }
 
-    function depositCollateralAndMintDsc() external override {}
+    /**
+     * @notice Deposit collateral and mint DSC
+     * @param tokenCollateralAddress The address of the token to deposit as collateral
+     * @param amountCollateral The amount of tokenCollateral to deposit
+     * @param amountDsc The amount of DSC to mint
+     */
+    function depositCollateralAndMintDsc(address tokenCollateralAddress, uint256 amountCollateral, uint256 amountDsc)
+        external
+        override
+        nonZeroAmount(amountCollateral)
+        nonZeroAmount(amountDsc)
+        notUnsupportedToken(tokenCollateralAddress)
+        nonReentrant
+    {
+        _depositCollateral(tokenCollateralAddress, amountCollateral);
+        _mintDsc(amountDsc);
+    }
 
-    function redeemCollateralForDsc() external override {}
+    function redeemCollateral(address tokenCollateral, uint256 amount)
+        external
+        override
+        nonZeroAmount(amount)
+        notUnsupportedToken(tokenCollateral)
+        nonReentrant
+    {
+        _redeemCollateral(tokenCollateral, amount);
+    }
 
-    function redeemCollateral() external override {}
+    function burnDsc(uint256 amount) external override nonZeroAmount(amount) {
+        _burnDsc(amount);
+    }
+
+    /*
+     * @param tokenCollateralAddress: The ERC20 token address of the collateral you're withdrawing
+     * @param amountCollateral: The amount of collateral you're withdrawing
+     * @param amountDscToBurn: The amount of DSC you want to burn
+     * @notice This function will withdraw your collateral and burn DSC in one transaction
+     */
+    function redeemCollateralForDsc(address tokenCollateralAddress, uint256 amountCollateral, uint256 amountDscToBurn)
+        external
+        nonZeroAmount(amountCollateral)
+        nonZeroAmount(amountDscToBurn)
+        notUnsupportedToken(tokenCollateralAddress)
+    {
+        _burnDsc(amountDscToBurn);
+        _redeemCollateral(tokenCollateralAddress, amountCollateral);
+    }
 
     function liquidate() external override {}
 
     function getHealthFactory() external view override {}
-
-    function burnDsc() external override {}
 
     /**
      * @notice Check if the collateral value > DSC amount
      * @notice They must have more collateral value
      */
     function mintDsc(uint256 amount) external override nonZeroAmount(amount) nonReentrant {
+        _mintDsc(amount);
+    }
+
+    ///////////////////
+    // Internal Functions
+    ///////////////////
+    function _redeemCollateral(address tokenCollateral, uint256 amount) private {
+        s_collateralDeposited[msg.sender][tokenCollateral] -= amount;
+
+        emit CollateralRedeemed(msg.sender, tokenCollateral, amount);
+
+        bool success = IERC20(tokenCollateral).transfer(msg.sender, amount);
+        if (!success) revert DSCEngine__TokenTransferFailed();
+
+        // Check that health factor is not broken
+        _revertIfHealthFactorIsBroken(msg.sender);
+    }
+
+    function _burnDsc(uint256 amount) private {
+        s_dscMinted[msg.sender] -= amount;
+
+        bool success = i_dsc.transferFrom(msg.sender, address(this), amount);
+        if (!success) revert DSCEngine__TokenTransferFailed();
+
+        i_dsc.burn(amount);
+    }
+
+    function _mintDsc(uint256 amount) private {
         s_dscMinted[msg.sender] += amount;
         // if they minted too much
         _revertIfHealthFactorIsBroken(msg.sender);
@@ -138,9 +207,6 @@ contract DSCEngine is IDSCEngine, ReentrancyGuard {
         }
     }
 
-    ///////////////////
-    // Internal Functions
-    ///////////////////
     function _depositCollateral(address tokenCollateralAddress, uint256 amountCollateral) private {
         s_collateralDeposited[msg.sender][tokenCollateralAddress] += amountCollateral;
 

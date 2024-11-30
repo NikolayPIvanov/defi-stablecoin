@@ -7,12 +7,14 @@ interface IDSCEngine {
      * @param amountCollateral The amount of tokenCollateral to deposit
      */
     function depositCollateral(address tokenCollateralAddress, uint256 amountCollateral) external;
-    function redeemCollateral() external;
-    function depositCollateralAndMintDsc() external;
-    function redeemCollateralForDsc() external;
+    function depositCollateralAndMintDsc(address tokenCollateralAddress, uint256 amountCollateral, uint256 amountDsc)
+        external;
+    function redeemCollateral(address tokenCollateral, uint256 amount) external;
+    function redeemCollateralForDsc(address tokenCollateralAddress, uint256 amountCollateral, uint256 amountDscToBurn)
+        external;
     function liquidate() external;
     function getHealthFactory() external view;
-    function burnDsc() external;
+    function burnDsc(uint256 amount) external;
 
     /**
      * @notice Check if the collateral value > DSC amount
