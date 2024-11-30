@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import {IDSCEngine} from "./IDSCEngine.sol";
 import {DecentralizedStableCoin} from "./DecentralizedStableCoin.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {IERC20} from "@openzeppelin/contracts/interfaces/IERC20.sol";
 
 /**
  * @title DSCEngine
@@ -31,6 +32,7 @@ contract DSCEngine is IDSCEngine, ReentrancyGuard {
     error DSCEngine__NeedsMoreThanZeroAmount();
     error DSCEngine__TokenAddressesAndPriceFeedsLengthDoNotMatch();
     error DSCEngine__NotAllowedToken();
+    error DSCEngine__TokenTransferFailed();
 
     ///////////////////
     // State Variables
@@ -78,7 +80,9 @@ contract DSCEngine is IDSCEngine, ReentrancyGuard {
     ///////////////////
     // External Functions
     ///////////////////
+
     /**
+     * @notice Follows CEI pattern
      * @inheritdoc IDSCEngine
      */
     function depositCollateral(address _tokenCollateralAddress, uint256 _amountCollateral)
@@ -112,5 +116,8 @@ contract DSCEngine is IDSCEngine, ReentrancyGuard {
         s_collateralDeposited[msg.sender][_tokenCollateralAddress] += _amountCollateral;
 
         emit CollateralDeposited(msg.sender, _tokenCollateralAddress, _amountCollateral);
+
+        bool success = IERC20(_tokenCollateralAddress).transferFrom(msg.sender, address(this), _amountCollateral);
+        if (!success) revert DSCEngine__TokenTransferFailed();
     }
 }

@@ -94,14 +94,16 @@ contract DecentralizedStableCoinTest is Test {
         dsc.burn(101);
     }
 
-    // function test_burn_mustBurnAmountFromBalance() public {
-    //     // Mint some tokens to our receiver so it can burn
-    //     vm.prank(dsc.owner());
-    //     dsc.mint(receiver, AMOUNT * 10);
+    function test_burn_mustBurnAmountFromBalance() public {
+        // Mint some tokens to our receiver so it can burn
+        address owner = dsc.owner();
+        vm.startPrank(owner);
+        dsc.mint(owner, AMOUNT * 2);
+        dsc.burn(AMOUNT);
+        vm.stopPrank();
 
-    //     vm.prank(user);
-    //     vm.expectRevert();
+        uint256 leftOverBalance = dsc.balanceOf(owner);
 
-    //     dsc.burn(1e18);
-    // }
+        assert(leftOverBalance == AMOUNT);
+    }
 }
