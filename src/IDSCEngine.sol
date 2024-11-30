@@ -13,5 +13,10 @@ interface IDSCEngine {
     function liquidate() external;
     function getHealthFactory() external view;
     function burnDsc() external;
-    function mintDsc() external;
+
+    /**
+     * @notice Check if the collateral value > DSC amount
+     * @param amount Amount of DSC to mint
+     */
+    function mintDsc(uint256 amount) external;
 }
