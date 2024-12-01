@@ -36,6 +36,8 @@ contract DSCEngine is IDSCEngine, ReentrancyGuard {
     error DSCEngine__TokenTransferFailed();
     error DSCEngine__BreaksHealthFactor(uint256 healthFactor);
     error DSCEngine__MintFailed();
+    error DSCEngine__HealthFactorOk();
+    error DSCEngine__HealthFactorNotImproved();
 
     ///////////////////
     // State Variables
@@ -43,9 +45,11 @@ contract DSCEngine is IDSCEngine, ReentrancyGuard {
     DecentralizedStableCoin private i_dsc;
 
     uint256 private constant LIQUIDATION_THRESHOLD = 50; // This means you need to be 200% over-collateralized
+    uint256 private constant LIQUIDATION_BONUS = 10; // This means you get assets at a 10% discount when liquidating
     uint256 private constant LIQUIDATION_PRECISION = 100;
     uint256 private constant PRECISION = 1e18;
     uint256 private constant MIN_HEALTH_FACTOR = 1e18;
+    uint256 private constant ADDITIONAL_FEED_PRECISION = 1e10;
 
     /// @dev Mapping of token address to price feed address
     mapping(address collateralToken => address priceFeed) private s_priceFeeds;
@@ -60,7 +64,7 @@ contract DSCEngine is IDSCEngine, ReentrancyGuard {
     ///////////////////
 
     event CollateralDeposited(address indexed user, address indexed collateralToken, uint256 amount);
-    event CollateralRedeemed(address indexed user, address indexed collateralToken, uint256 amount);
+    event CollateralRedeemed(address indexed from, address indexed to, address indexed collateralToken, uint256 amount);
 
     ///////////////////
     // Modifiers
@@ -136,11 +140,11 @@ contract DSCEngine is IDSCEngine, ReentrancyGuard {
         notUnsupportedToken(tokenCollateral)
         nonReentrant
     {
-        _redeemCollateral(tokenCollateral, amount);
+        _redeemCollateral(tokenCollateral, amount, msg.sender, msg.sender);
     }
 
     function burnDsc(uint256 amount) external override nonZeroAmount(amount) {
-        _burnDsc(amount);
+        _burnDsc(amount, msg.sender, msg.sender);
     }
 
     /*
@@ -155,11 +159,44 @@ contract DSCEngine is IDSCEngine, ReentrancyGuard {
         nonZeroAmount(amountDscToBurn)
         notUnsupportedToken(tokenCollateralAddress)
     {
-        _burnDsc(amountDscToBurn);
-        _redeemCollateral(tokenCollateralAddress, amountCollateral);
+        _burnDsc(amountDscToBurn, msg.sender, msg.sender);
+        _redeemCollateral(tokenCollateralAddress, amountCollateral, msg.sender, msg.sender);
     }
 
-    function liquidate() external override {}
+    /**
+     * @notice Liquidate a user
+     * @param collateral The collateral token address
+     * @param user The user to liquidate
+     * @param debt The debt to liquidate
+     * @notice You can partially liquidate a user.
+     * @notice You will get a 10% LIQUIDATION_BONUS for taking the users funds.
+     * @notice This function working assumes that the protocol will be roughly 150% overcollateralized in order for this to work.
+     * @notice A known bug would be if the protocol was only 100% collateralized, we wouldn't be able to liquidate anyone.
+     * For example, if the price of the collateral plummeted before anyone could be liquidated.
+     */
+    function liquidate(address collateral, address user, uint256 debt)
+        external
+        override
+        nonZeroAmount(debt)
+        notUnsupportedToken(collateral)
+        nonReentrant
+    {
+        uint256 startingHealthFactor = _healthFactor(user);
+        if (startingHealthFactor >= MIN_HEALTH_FACTOR) revert DSCEngine__HealthFactorOk();
+
+        uint256 tokenAmountFromDebtCovered = getTokenAmountFromUsd(collateral, debt);
+        uint256 bonusCollateral = (tokenAmountFromDebtCovered * LIQUIDATION_BONUS) / LIQUIDATION_PRECISION;
+
+        _redeemCollateral(collateral, tokenAmountFromDebtCovered + bonusCollateral, user, msg.sender);
+        _burnDsc(debt, user, msg.sender);
+
+        uint256 endingUserHealthFactor = _healthFactor(user);
+        if (endingUserHealthFactor <= startingHealthFactor) {
+            revert DSCEngine__HealthFactorNotImproved();
+        }
+
+        _revertIfHealthFactorIsBroken(msg.sender);
+    }
 
     function getHealthFactory() external view override {}
 
@@ -174,22 +211,22 @@ contract DSCEngine is IDSCEngine, ReentrancyGuard {
     ///////////////////
     // Internal Functions
     ///////////////////
-    function _redeemCollateral(address tokenCollateral, uint256 amount) private {
-        s_collateralDeposited[msg.sender][tokenCollateral] -= amount;
+    function _redeemCollateral(address tokenCollateral, uint256 amount, address from, address to) private {
+        s_collateralDeposited[from][tokenCollateral] -= amount;
 
-        emit CollateralRedeemed(msg.sender, tokenCollateral, amount);
+        emit CollateralRedeemed(from, to, tokenCollateral, amount);
 
-        bool success = IERC20(tokenCollateral).transfer(msg.sender, amount);
+        bool success = IERC20(tokenCollateral).transfer(to, amount);
         if (!success) revert DSCEngine__TokenTransferFailed();
 
         // Check that health factor is not broken
-        _revertIfHealthFactorIsBroken(msg.sender);
+        _revertIfHealthFactorIsBroken(from);
     }
 
-    function _burnDsc(uint256 amount) private {
-        s_dscMinted[msg.sender] -= amount;
+    function _burnDsc(uint256 amount, address onBehalfOf, address dscFrom) private {
+        s_dscMinted[onBehalfOf] -= amount;
 
-        bool success = i_dsc.transferFrom(msg.sender, address(this), amount);
+        bool success = i_dsc.transferFrom(dscFrom, address(this), amount);
         if (!success) revert DSCEngine__TokenTransferFailed();
 
         i_dsc.burn(amount);
@@ -264,6 +301,16 @@ contract DSCEngine is IDSCEngine, ReentrancyGuard {
         (, int256 price,,,) = feed.latestRoundData();
 
         // Chainlink returns 1e8
-        return ((uint256(price) * 1e10) * amount) / 1e18;
+        return ((uint256(price) * ADDITIONAL_FEED_PRECISION) * amount) / PRECISION;
+    }
+
+    function getTokenAmountFromUsd(address token, uint256 usdAmountInWei) public view returns (uint256) {
+        AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[token]);
+        (, int256 price,,,) = priceFeed.latestRoundData();
+        // $100e18 USD Debt
+        // 1 ETH = 2000 USD
+        // The returned value from Chainlink will be 2000 * 1e8
+        // Most USD pairs have 8 decimals, so we will just pretend they all do
+        return ((usdAmountInWei * PRECISION) / (uint256(price) * ADDITIONAL_FEED_PRECISION));
     }
 }
