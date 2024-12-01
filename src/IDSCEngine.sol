@@ -13,7 +13,7 @@ interface IDSCEngine {
     function redeemCollateralForDsc(address tokenCollateralAddress, uint256 amountCollateral, uint256 amountDscToBurn)
         external;
     function liquidate(address tokenCollateral, address user, uint256 debt) external;
-    function getHealthFactory() external view;
+    function getHealthFactor(address user) external view returns (uint256 factor);
     function burnDsc(uint256 amount) external;
 
     /**

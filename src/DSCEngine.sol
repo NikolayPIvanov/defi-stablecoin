@@ -198,7 +198,9 @@ contract DSCEngine is IDSCEngine, ReentrancyGuard {
         _revertIfHealthFactorIsBroken(msg.sender);
     }
 
-    function getHealthFactory() external view override {}
+    function getHealthFactor(address user) external view override returns (uint256 factor) {
+        factor = _healthFactor(user);
+    }
 
     /**
      * @notice Check if the collateral value > DSC amount
